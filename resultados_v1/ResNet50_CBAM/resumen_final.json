@@ -1,0 +1,12 @@
+{
+  "modelo": "ResNet50_CBAM",
+  "macro_f1": 0.3849,
+  "balanced_acc": 0.3935,
+  "accuracy": 0.7061,
+  "mejor_f1_val": 0.4492,
+  "tiempo_min": 68.4,
+  "parametros": 25215752,
+  "epocas_f1": 10,
+  "epocas_f2": 15,
+  "batch_size": 32
+}

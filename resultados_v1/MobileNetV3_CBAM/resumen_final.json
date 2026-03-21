@@ -1,0 +1,12 @@
+{
+  "modelo": "MobileNetV3_CBAM",
+  "macro_f1": 0.3687,
+  "balanced_acc": 0.3727,
+  "accuracy": 0.6818,
+  "mejor_f1_val": 0.4412,
+  "tiempo_min": 20.1,
+  "parametros": 3582358,
+  "epocas_f1": 10,
+  "epocas_f2": 15,
+  "batch_size": 32
+}
