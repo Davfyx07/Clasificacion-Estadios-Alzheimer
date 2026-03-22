@@ -130,7 +130,7 @@ def entrenar():
         tr_loss, tr_acc, _, _, _ = run_epoch(model, train_loader, criterion, optimizer)
         vl_loss, vl_acc, vl_f1, _, _ = run_epoch(model, val_loader, criterion)
         history.append({"epoch": ep, "train_loss": tr_loss, "val_loss": vl_loss, "val_acc": vl_acc, "val_f1": vl_f1})
-        print(f"E{ep+1:02d} | Loss: {tr_loss:.4f} | Val F1: {vl_f1:.4f}")
+        print(f"E{ep+1:02d} | Loss: {tr_loss:.4f} | Val F1: {vl_f1:.4f} | loss: {vl_loss:.4f} | acc: {vl_acc:.4f} | time: {(time.time() - t_inicio)/60:.2f} min")
         if vl_f1 > best_f1:
             best_f1 = vl_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}

@@ -145,7 +145,7 @@ def entrenar():
         tr_l, tr_a, _, _, _ = run_epoch(model, train_loader, criterion, optimizer)
         vl_l, vl_a, vl_f, _, _ = run_epoch(model, val_loader, criterion)
         history.append({"epoch": ep, "train_loss": tr_l, "val_loss": vl_l, "val_acc": vl_a, "val_f1": vl_f})
-        print(f"E{ep+1:02d} | Val F1: {vl_f:.4f}")
+        print(f"E{ep+1:02d} | Val F1: {vl_f:.4f} | loss: {vl_l:.4f} | acc: {vl_a:.4f} | time: {(time.time() - t_inicio)/60:.2f} min")
         if vl_f > best_f1:
             best_f1 = vl_f
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
@@ -164,7 +164,7 @@ def entrenar():
         vl_l, vl_a, vl_f, _, _ = run_epoch(model, val_loader, criterion)
         scheduler.step(vl_f)
         history.append({"epoch": ep + EPOCAS_F1, "train_loss": tr_l, "val_loss": vl_l, "val_acc": vl_a, "val_f1": vl_f})
-        print(f"E{ep+1+EPOCAS_F1:02d} | Val F1: {vl_f:.4f}")
+        print(f"E{ep+1+EPOCAS_F1:02d} | Val F1: {vl_f:.4f} | loss: {vl_l:.4f} | acc: {vl_a:.4f} | time: {(time.time() - t_inicio)/60:.2f} min")
         
         if vl_f > best_f1:
             best_f1 = vl_f
