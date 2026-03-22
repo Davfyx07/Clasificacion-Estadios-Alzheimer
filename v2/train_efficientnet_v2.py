@@ -15,6 +15,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 from torchvision import models
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import (classification_report, confusion_matrix, f1_score, balanced_accuracy_score)
@@ -26,8 +27,18 @@ MODEL_NAME  = "EfficientNetV2S_CBAM_v2"
 RESULT_DIR  = f"/home/davfy/Escritorio/Vision/v2/resultados/{MODEL_NAME}"
 DEVICE      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CLASES      = ["Non_Demented", "Very_Mild_Demented", "Mild_Demented", "Moderate_Demented"]
+# ── VARIABLES DE CONTROL (Faltantes en tu versión) ──────────
+BATCH_SIZE    = 32
+SEED          = 42
+EPOCAS_F1     = 10   # Fase 1: Solo entrenamiento de CBAM y Cabezal
+EPOCAS_F2     = 20   # Fase 2: Fine-tuning del bloque 4 al 6
+LR_F1         = 1e-3
+LR_F2         = 5e-5
+MAX_PATIENCE  = 8
 os.makedirs(RESULT_DIR, exist_ok=True)
-
+# Configurar semilla para reproducibilidad
+torch.manual_seed(SEED)
+np.random.seed(SEED)
 # ── Modelo ─────────────────────────────────────────────────
 class EfficientNetCBAM_v2(nn.Module):
     def __init__(self, num_classes=4):
@@ -46,7 +57,7 @@ class EfficientNetCBAM_v2(nn.Module):
         )
 
     def _insert_cbam(self):
-        # CBAM en bloques 4 (128ch), 5 (160ch), 6 (256ch)
+        # Insertamos CBAM en los bloques finales donde la semántica es más rica
         for idx, ch in {4: 128, 5: 160, 6: 256}.items():
             self.features[idx] = nn.Sequential(self.features[idx], CBAM(ch))
 
@@ -78,217 +89,90 @@ def run_epoch(model, loader, criterion, optimizer=None):
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(preds.cpu().numpy())
 
-    return (total_loss / total,
-            correct / total,
-            f1_score(y_true, y_pred, average="macro", zero_division=0),
+    return (total_loss / total, correct / total, 
+            f1_score(y_true, y_pred, average="macro", zero_division=0), 
             y_true, y_pred)
 
-# ── Guardar curvas ─────────────────────────────────────────
+# ── Funciones de Guardado ──────────────────────────────────
 def guardar_curvas(history):
     df = pd.DataFrame(history)
     df.to_csv(os.path.join(RESULT_DIR, "history.csv"), index=False)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    axes[0].plot(df["epoch"], df["train_loss"], label="Train"); axes[0].plot(df["epoch"], df["val_loss"], label="Val")
+    axes[0].set_title("Loss"); axes[0].legend()
+    axes[1].plot(df["epoch"], df["val_f1"], color="green", label="Val Macro F1")
+    axes[1].set_title("Macro F1-Score"); axes[1].legend()
+    plt.savefig(os.path.join(RESULT_DIR, "curvas.png")); plt.close()
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle(f"{MODEL_NAME} — Curvas de Entrenamiento", fontsize=13, fontweight="bold")
-
-    axes[0].plot(df["epoch"], df["train_loss"], label="Train")
-    axes[0].plot(df["epoch"], df["val_loss"],   label="Val")
-    axes[0].axvline(x=EPOCAS_F1, color="gray", linestyle="--", alpha=0.5, label="Inicio Fase 2")
-    axes[0].set_title("Loss")
-    axes[0].set_xlabel("Época")
-    axes[0].legend()
-    axes[0].grid(alpha=0.3)
-
-    axes[1].plot(df["epoch"], df["train_acc"], label="Train")
-    axes[1].plot(df["epoch"], df["val_acc"],   label="Val")
-    axes[1].axvline(x=EPOCAS_F1, color="gray", linestyle="--", alpha=0.5)
-    axes[1].set_title("Accuracy")
-    axes[1].set_xlabel("Época")
-    axes[1].legend()
-    axes[1].grid(alpha=0.3)
-
-    axes[2].plot(df["epoch"], df["val_f1"], color="green", label="Val Macro F1")
-    axes[2].axvline(x=EPOCAS_F1, color="gray", linestyle="--", alpha=0.5, label="Inicio Fase 2")
-    axes[2].set_title("Macro F1-Score")
-    axes[2].set_xlabel("Época")
-    axes[2].legend()
-    axes[2].grid(alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULT_DIR, "curvas_entrenamiento.png"), dpi=150)
-    plt.close()
-
-# ── Matriz de confusión ────────────────────────────────────
 def guardar_confusion(y_true, y_pred, titulo):
-    cm      = confusion_matrix(y_true, y_pred)
-    cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=CLASES, yticklabels=CLASES)
+    plt.title(titulo); plt.ylabel("Real"); plt.xlabel("Predicción")
+    plt.savefig(os.path.join(RESULT_DIR, f"confusion_{titulo.lower().replace(' ', '_')}.png")); plt.close()
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.suptitle(f"{MODEL_NAME} — {titulo}", fontsize=13, fontweight="bold")
-
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
-                xticklabels=CLASES, yticklabels=CLASES, ax=axes[0])
-    axes[0].set_title("Conteos absolutos")
-    axes[0].set_xlabel("Predicción")
-    axes[0].set_ylabel("Real")
-    axes[0].tick_params(axis="x", rotation=30)
-
-    sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap="Blues",
-                xticklabels=CLASES, yticklabels=CLASES, ax=axes[1])
-    axes[1].set_title("Normalizada (por fila)")
-    axes[1].set_xlabel("Predicción")
-    axes[1].set_ylabel("Real")
-    axes[1].tick_params(axis="x", rotation=30)
-
-    plt.tight_layout()
-    nombre = titulo.lower().replace(" ", "_")
-    plt.savefig(os.path.join(RESULT_DIR, f"confusion_{nombre}.png"), dpi=150)
-    plt.close()
-
-# ── Entrenamiento ──────────────────────────────────────────
+# ── Entrenamiento Principal ────────────────────────────────
 def entrenar():
     t_inicio = time.time()
-    print(f"\nDispositivo: {DEVICE}")
-    print(f"Modelo: {MODEL_NAME}")
-
     train_loader, val_loader, test_loader, _ = get_dataloaders(BATCH_SIZE)
-    print(f"Train: {len(train_loader.dataset)} imgs | "
-          f"Val: {len(val_loader.dataset)} imgs | "
-          f"Test: {len(test_loader.dataset)} imgs\n")
-
-    model     = EfficientNetCBAM_v2().to(DEVICE)
+    model = EfficientNetCBAM_v2().to(DEVICE)
     criterion = nn.CrossEntropyLoss()
-    total     = sum(p.numel() for p in model.parameters())
-    print(f"Parámetros totales: {total:,}")
-
-    history    = []
-    best_f1    = 0.0
+    
+    history = []
+    best_f1 = 0.0
     best_state = None
 
-    # ── FASE 1 ────────────────────────────────────────────
-    print(f"\n{'='*55}")
-    print(f"FASE 1 — CBAM + cabezal (backbone congelado)")
-    print(f"{'='*55}")
-
-    # Congelar TODO el backbone
-    for p in model.features.parameters():
-        p.requires_grad = False
-
-    # Descongelar SOLO los módulos CBAM (bloque [1] de cada Sequential)
+    # FASE 1: Congelar Backbone, entrenar CBAM + Cabezal
+    for p in model.features.parameters(): p.requires_grad = False
     for idx in [4, 5, 6]:
-        for p in model.features[idx][1].parameters():
-            p.requires_grad = True
-
-    trainable1 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Parámetros entrenables Fase 1: {trainable1:,}  (CBAM + cabezal)\n")
-
-    optimizer1 = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LR_F1, weight_decay=1e-5)
-
+        for p in model.features[idx][1].parameters(): p.requires_grad = True
+    
+    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=LR_F1)
+    
+    print("--- INICIANDO FASE 1 ---")
     for ep in range(EPOCAS_F1):
-        t0 = time.time()
-        tr_loss, tr_acc, _, _, _ = run_epoch(model, train_loader, criterion, optimizer1)
+        tr_loss, tr_acc, _, _, _ = run_epoch(model, train_loader, criterion, optimizer)
         vl_loss, vl_acc, vl_f1, _, _ = run_epoch(model, val_loader, criterion)
-        elapsed = time.time() - t0
-        history.append({"epoch": ep, "fase": 1,
-                        "train_loss": tr_loss, "val_loss": vl_loss,
-                        "train_acc":  tr_acc,  "val_acc":  vl_acc,
-                        "val_f1":     vl_f1})
+        history.append({"epoch": ep, "train_loss": tr_loss, "val_loss": vl_loss, "val_acc": vl_acc, "val_f1": vl_f1})
+        print(f"E{ep+1}/{EPOCAS_F1} | Val F1: {vl_f1:.4f}")
         if vl_f1 > best_f1:
-            best_f1    = vl_f1
+            best_f1 = vl_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-        print(f"  Época {ep+1:2d}/{EPOCAS_F1} | "
-              f"Loss {tr_loss:.4f}/{vl_loss:.4f} | "
-              f"Acc {tr_acc:.4f}/{vl_acc:.4f} | "
-              f"F1 {vl_f1:.4f} | {elapsed:.1f}s")
 
-    # ── FASE 2 ────────────────────────────────────────────
-    print(f"\n{'='*55}")
-    print(f"FASE 2 — Fine-tuning (bloques 4-6 + CBAM + cabezal)")
-    print(f"{'='*55}")
-    torch.cuda.empty_cache()
-
-    # Descongelar bloques 4, 5, 6 completos
+    # FASE 2: Fine-tuning bloques finales
+    print("--- INICIANDO FASE 2 ---")
     for idx in [4, 5, 6]:
-        for p in model.features[idx].parameters():
-            p.requires_grad = True
-
-    trainable2 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Parámetros entrenables Fase 2: {trainable2:,}\n")
-
-    optimizer2 = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LR_F2, weight_decay=1e-5)
-    scheduler2 = ReduceLROnPlateau(optimizer2, mode="max", factor=0.5, patience=4)
-
-    patience     = 0
-    MAX_PATIENCE = 8
+        for p in model.features[idx].parameters(): p.requires_grad = True
+    
+    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=LR_F2)
+    patience_cnt = 0
 
     for ep in range(EPOCAS_F2):
-        t0 = time.time()
-        tr_loss, tr_acc, _, _, _ = run_epoch(model, train_loader, criterion, optimizer2)
+        tr_loss, tr_acc, _, _, _ = run_epoch(model, train_loader, criterion, optimizer)
         vl_loss, vl_acc, vl_f1, _, _ = run_epoch(model, val_loader, criterion)
-        elapsed = time.time() - t0
-        scheduler2.step(vl_f1)
-        history.append({"epoch": EPOCAS_F1 + ep, "fase": 2,
-                        "train_loss": tr_loss, "val_loss": vl_loss,
-                        "train_acc":  tr_acc,  "val_acc":  vl_acc,
-                        "val_f1":     vl_f1})
+        history.append({"epoch": ep + EPOCAS_F1, "train_loss": tr_loss, "val_loss": vl_loss, "val_acc": vl_acc, "val_f1": vl_f1})
+        print(f"E{ep+1+EPOCAS_F1}/{EPOCAS_F1+EPOCAS_F2} | Val F1: {vl_f1:.4f}")
+        
         if vl_f1 > best_f1:
-            best_f1    = vl_f1
+            best_f1 = vl_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-            patience   = 0
+            patience_cnt = 0
         else:
-            patience += 1
-        print(f"  Época {ep+1:2d}/{EPOCAS_F2} | "
-              f"Loss {tr_loss:.4f}/{vl_loss:.4f} | "
-              f"Acc {tr_acc:.4f}/{vl_acc:.4f} | "
-              f"F1 {vl_f1:.4f} | {elapsed:.1f}s")
-        if patience >= MAX_PATIENCE:
-            print(f"  Early stopping en época {ep+1}")
-            break
+            patience_cnt += 1
+            if patience_cnt >= MAX_PATIENCE: break
 
-    # ── Evaluación final ──────────────────────────────────
-    print(f"\n{'='*55}")
-    print(f"EVALUACIÓN FINAL — TEST")
-    print(f"{'='*55}")
+    # Evaluación Final
     model.load_state_dict(best_state)
     torch.save(best_state, os.path.join(RESULT_DIR, "best_model.pth"))
-
     _, _, _, y_true, y_pred = run_epoch(model, test_loader, criterion)
-
-    macro_f1 = f1_score(y_true, y_pred, average="macro",    zero_division=0)
-    bal_acc  = balanced_accuracy_score(y_true, y_pred)
-    acc      = sum(t == p for t, p in zip(y_true, y_pred)) / len(y_true)
-    t_total  = (time.time() - t_inicio) / 60
-
-    print(classification_report(y_true, y_pred, target_names=CLASES, zero_division=0))
-    print(f"Macro F1-Score:    {macro_f1:.4f}")
-    print(f"Balanced Accuracy: {bal_acc:.4f}")
-    print(f"Accuracy global:   {acc:.4f}")
-    print(f"Tiempo total:      {t_total:.1f} min")
-
+    
+    print("\nREPORT TEST:")
+    print(classification_report(y_true, y_pred, target_names=CLASES))
     guardar_curvas(history)
-    guardar_confusion(y_true, y_pred, "Matriz de Confusión Test")
-
-    resumen = {
-        "modelo":       MODEL_NAME,
-        "macro_f1":     round(macro_f1, 4),
-        "balanced_acc": round(bal_acc,  4),
-        "accuracy":     round(acc,      4),
-        "mejor_f1_val": round(best_f1,  4),
-        "tiempo_min":   round(t_total,  1),
-        "parametros":   total,
-        "epocas_f1":    EPOCAS_F1,
-        "epocas_f2":    EPOCAS_F2,
-        "batch_size":   BATCH_SIZE,
-    }
-    with open(os.path.join(RESULT_DIR, "resumen_final.json"), "w") as f:
-        json.dump(resumen, f, indent=2)
-
-    print(f"\n✅ Resultados en: {RESULT_DIR}")
-    return resumen
+    guardar_confusion(y_true, y_pred, "Test Final")
+    
+    with open(os.path.join(RESULT_DIR, "resumen.json"), "w") as f:
+        json.dump({"modelo": MODEL_NAME, "accuracy": balanced_accuracy_score(y_true, y_pred), "macro_f1": f1_score(y_true, y_pred, average="macro")}, f)
 
 if __name__ == "__main__":
     entrenar()
