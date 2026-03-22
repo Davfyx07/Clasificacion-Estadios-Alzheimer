@@ -3,39 +3,17 @@ train_mobilenet.py
 Entrenamiento preliminar MobileNetV3Large + CBAM
 Versión de comparación — 10 épocas fase 1, 15 épocas fase 2
 """
-
-import os, time, json
+import os, time, json, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import torch
 import torch.nn as nn
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torchvision import models, transforms, datasets
-from torch.utils.data import DataLoader, WeightedRandomSampler
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.metrics import (classification_report, confusion_matrix,
-                              f1_score, balanced_accuracy_score)
+from torchvision import models
+from v2.dataset_v2 import get_dataloaders
 from cbam import CBAM
 
-# ── Configuración ──────────────────────────────────────────
-MODEL_NAME  = "MobileNetV3_CBAM"
-DATASET_DIR = "/home/davfy/Escritorio/Vision/dataset_balanceado"
-RESULT_DIR  = f"/home/davfy/Escritorio/Vision/resultados/{MODEL_NAME}"
-DEVICE      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-BATCH_SIZE  = 32
-SEED        = 42
-EPOCAS_F1   = 10
-EPOCAS_F2   = 15
-LR_F1       = 1e-3
-LR_F2       = 1e-4
-
-CLASES = ["Non Demented", "Very mild Dementia", "Mild Dementia", "Moderate Dementia"]
-MEAN   = [0.485, 0.456, 0.406]
-STD    = [0.229, 0.224, 0.225]
-
-torch.manual_seed(SEED)
-np.random.seed(SEED)
+MODEL_NAME  = "MobileNetV3_CBAM_v2"
+RESULT_DIR  = f"/home/davfy/Escritorio/Vision/v2/resultados/{MODEL_NAME}"
+CLASES      = ["Non_Demented", "Very_Mild_Demented", "Mild_Demented", "Moderate_Demented"]
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 # ── Modelo ─────────────────────────────────────────────────
