@@ -1,0 +1,9 @@
+{
+  "modelo": "ResNet50_CBAM_v2",
+  "test_loss": 0.0925,
+  "accuracy": 0.9704,
+  "balanced_acc": 0.9742,
+  "macro_f1": 0.9772,
+  "best_val_f1": 0.9574,
+  "minutes": 59.63
+}

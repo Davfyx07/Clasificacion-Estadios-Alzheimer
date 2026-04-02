@@ -9,7 +9,7 @@ SEED          = 42
 N_TRAIN_REF   = 5000  
 IMG_SIZE      = 224   
 DATA_DIR      = "/home/davfy/Escritorio/Alzheimer (Preprocessed Data)/" 
-OUTPUT_DIR    = "/home/davfy/Escritorio/Vision/dataset_balanceado"
+OUTPUT_DIR    = "/home/davfy/Escritorio/Vision/dataset_balanceado2"
 
 CLASES = ["Non_Demented", "Very_Mild_Demented", "Mild_Demented", "Moderate_Demented"]
 
@@ -55,7 +55,6 @@ def preparar_dataset_senior():
                 img = Image.open(img_path).convert("RGB")
                 img = img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
                 
-                # Aumento sutil (Cumpliendo el "10%" de intensidad del prof)
                 angle = random.uniform(-7, 7) # Solo 7 grados
                 zoom = random.uniform(0.95, 1.05) # Solo 5% de zoom
                 

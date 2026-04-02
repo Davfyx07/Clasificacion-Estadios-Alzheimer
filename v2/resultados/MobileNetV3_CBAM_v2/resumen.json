@@ -1,0 +1,9 @@
+{
+  "modelo": "MobileNetV3_CBAM_v2",
+  "test_loss": 0.1447,
+  "accuracy": 0.9594,
+  "balanced_acc": 0.9667,
+  "macro_f1": 0.9689,
+  "best_val_f1": 0.9658,
+  "minutes": 10.79
+}

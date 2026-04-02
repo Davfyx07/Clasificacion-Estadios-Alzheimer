@@ -22,7 +22,7 @@ from v2.dataset_v2 import get_dataloaders
 
 CLASSES = ["Non_Demented", "Very_Mild_Demented", "Mild_Demented", "Moderate_Demented"]
 BASE_RESULTS = "/home/davfy/Escritorio/Vision/v2/resultados"
-DEFAULT_DATASET = "/home/davfy/Escritorio/Vision/dataset_balanceado"
+DEFAULT_DATASET = "/home/davfy/Escritorio/Vision/dataset_balanceado2"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -150,7 +150,26 @@ class ResNet50CBAMV2(nn.Module):
         x = self.pool(x)
         return self.classifier(x)
 
+class DenseNetCBAMV2(nn.Module):
+    def __init__(self, num_classes=4):
+        super().__init__()
+        base = models.densenet121(weights="IMAGENET1K_V1")
+        self.features = base.features
+        self.features.add_module("cbam", CBAM(1024))
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(512, num_classes),
+        )
 
+    def forward(self, x):
+        x = self.features(x)
+        x = self.pool(x)
+        x = torch.flatten(x, 1)
+        return self.classifier(x)
 MODEL_CONFIG = {
     "efficientnet": {
         "model_name": "EfficientNetV2S_CBAM_v2",
@@ -196,6 +215,18 @@ MODEL_CONFIG = {
             [setattr(p, "requires_grad", True) for p in m.layer3.parameters()]
             + [setattr(p, "requires_grad", True) for p in m.layer4.parameters()]
         ),
+    },
+    "densenet": {
+        "model_name": "DenseNet121_CBAM_v2",
+        "builder": DenseNetCBAMV2,
+        "epochs_f1": 10,
+        "epochs_f2": 20,
+        "lr_f1": 1e-3,
+        "lr_f2": 5e-5,
+        "patience": 8,
+        "target_layer": lambda m: m.features.cbam.spatial_attention.conv,
+        "freeze_f1": lambda m: [setattr(p, "requires_grad", False) for name, p in m.features.named_parameters() if "cbam" not in name],
+        "unfreeze_f2": lambda m: [setattr(p, "requires_grad", True) for p in m.features.parameters()],
     },
 }
 
@@ -287,7 +318,7 @@ def save_gradcam(model, target_layer, test_loader, output_dir):
 
 
 def load_dataloaders(dataset_dir, batch_size):
-    loaders = get_dataloaders(dataset_dir, batch_size=batch_size)
+    loaders = get_dataloaders(batch_size=batch_size)
     if len(loaders) == 4:
         train_loader, val_loader, test_loader, _ = loaders
     else:
@@ -318,7 +349,7 @@ def train_one_model(model_key, train_loader, val_loader, test_loader, use_gradca
         history.append(
             {"epoch": epoch_global, "train_loss": tr_loss, "val_loss": vl_loss, "val_f1": vl_f1, "val_balanced_acc": vl_bacc}
         )
-        print(f"F1 E{epoch_global:02d}: val_f1={vl_f1:.4f} val_bacc={vl_bacc:.4f}")
+        print(f"F1 E{epoch_global:02d}: val_f1={vl_f1:.4f} val_bacc={vl_bacc:.4f} val_loss={vl_loss:.4f}")
         if vl_f1 > best_f1:
             best_f1 = vl_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
@@ -335,7 +366,7 @@ def train_one_model(model_key, train_loader, val_loader, test_loader, use_gradca
         history.append(
             {"epoch": epoch_global, "train_loss": tr_loss, "val_loss": vl_loss, "val_f1": vl_f1, "val_balanced_acc": vl_bacc}
         )
-        print(f"F2 E{epoch_global:02d}: val_f1={vl_f1:.4f} val_bacc={vl_bacc:.4f}")
+        print(f"F2 E{epoch_global:02d}: val_f1={vl_f1:.4f} val_bacc={vl_bacc:.4f} val_loss={vl_loss:.4f}")
         if vl_f1 > best_f1:
             best_f1 = vl_f1
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
