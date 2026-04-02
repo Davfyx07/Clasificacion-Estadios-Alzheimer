@@ -1,201 +1,68 @@
-"""
-preparacion_DS.py
-Prepara el dataset OASIS balanceado con augmentation SOLO en train.
-- Train: 8750 imágenes por clase (reales + sintéticas)
-- Val/Test: solo imágenes reales, sin augmentation
-Output: /home/davfy/Escritorio/Vision/dataset_balanceado/
-"""
-
 import os
 import shutil
 import random
 import numpy as np
-from PIL import Image, ImageEnhance
-import cv2
+from PIL import Image
 
-# ── Configuración ──────────────────────────────────────────
+# ── CONFIGURACIÓN SENIOR ────────────────────────────────────
 SEED          = 42
-N_REF         = 8750
-IMG_SIZE      = 224
-DATA_DIR      = "/home/davfy/Documentos/Data"
-OUTPUT_DIR    = "/home/davfy/Escritorio/Vision/dataset_balanceado"
+N_TRAIN_REF   = 5000  
+IMG_SIZE      = 224   
+DATA_DIR      = "/home/davfy/Escritorio/Alzheimer (Preprocessed Data)/" 
+OUTPUT_DIR    = "/home/davfy/Escritorio/Vision/dataset_balanceado2"
 
-CLASES = [
-    "Non Demented",
-    "Very mild Dementia",
-    "Mild Dementia",
-    "Moderate Dementia"
-]
-
-# Caso especial Moderate — solo 2 pacientes en OASIS-1
-MODERATE_TRAIN    = "OAS1_0308"
-MODERATE_VAL_TEST = "OAS1_0351"
+CLASES = ["Non_Demented", "Very_Mild_Demented", "Mild_Demented", "Moderate_Demented"]
 
 random.seed(SEED)
 np.random.seed(SEED)
 
-# ── Augmentation (SOLO para train) ────────────────────────
-def augmentar(img_pil):
-    img = np.array(img_pil.convert("L"))
-
-    # Rotación
-    if random.random() < 0.5:
-        angle = random.uniform(-10, 10)
-        h, w = img.shape
-        M = cv2.getRotationMatrix2D((w/2, h/2), angle, 1)
-        img = cv2.warpAffine(img, M, (w, h))
-
-    # Escalado
-    if random.random() < 0.4:
-        s = random.uniform(0.95, 1.05)
-        h, w = img.shape
-        img = cv2.resize(img, (int(w*s), int(h*s)))
-        img = cv2.resize(img, (w, h))
-
-    # Brillo
-    if random.random() < 0.5:
-        beta = random.uniform(0.90, 1.10)
-        img = np.clip(img * beta, 0, 255).astype(np.uint8)
-
-    # Contraste
-    if random.random() < 0.5:
-        alpha = random.uniform(0.90, 1.10)
-        mean  = img.mean()
-        img   = np.clip(mean + alpha * (img - mean), 0, 255).astype(np.uint8)
-
-    return Image.fromarray(img).convert("RGB")
-
-# ── Obtener patient_id del nombre de archivo ──────────────
-def get_patient_id(fname):
-    partes = fname.split("_")
-    # OAS1_0308_MR1_... → OAS1_0308
-    if len(partes) >= 2:
-        return f"{partes[0]}_{partes[1]}"
-    return fname
-
-# ── Copiar + resize (sin augmentation) ───────────────────
-def copiar(src, dst):
-    img = Image.open(src).convert("RGB")
-    img = img.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
-    img.save(dst, quality=95)
-
-# ── Main ──────────────────────────────────────────────────
-def preparar():
-    # Limpiar output
+def preparar_dataset_senior():
     if os.path.exists(OUTPUT_DIR):
-        print("Limpiando carpeta de salida antigua...")
         shutil.rmtree(OUTPUT_DIR)
-
+    
     for split in ["train", "val", "test"]:
         for clase in CLASES:
             os.makedirs(os.path.join(OUTPUT_DIR, split, clase), exist_ok=True)
 
-    print(f"Output: {OUTPUT_DIR}\n")
-
     for clase in CLASES:
         ruta_clase = os.path.join(DATA_DIR, clase)
-        if not os.path.exists(ruta_clase):
-            print(f"ERROR: No se encuentra {ruta_clase}")
-            continue
+        fotos = [f for f in os.listdir(ruta_clase) if f.endswith(('.jpg', '.png', '.jpeg'))]
+        random.shuffle(fotos)
 
-        # Agrupar imágenes por paciente
-        archivos = sorted([f for f in os.listdir(ruta_clase)
-                           if f.lower().endswith((".jpg", ".png", ".jpeg"))])
+        # Split 80/10/10
+        n = len(fotos)
+        train_end = int(n * 0.8)
+        val_end = int(n * 0.9)
 
-        pacientes = {}
-        for f in archivos:
-            pid = get_patient_id(f)
-            pacientes.setdefault(pid, []).append(f)
+        train_reales = fotos[:train_end]
+        val_reales   = fotos[train_end:val_end]
+        test_reales  = fotos[val_end:]
 
-        lista_pids = sorted(pacientes.keys())
+        # Copiar Reales (Sin tocar nada)
+        for f in val_reales: shutil.copy(os.path.join(ruta_clase, f), os.path.join(OUTPUT_DIR, "val", clase, f))
+        for f in test_reales: shutil.copy(os.path.join(ruta_clase, f), os.path.join(OUTPUT_DIR, "test", clase, f))
+        for f in train_reales: shutil.copy(os.path.join(ruta_clase, f), os.path.join(OUTPUT_DIR, "train", clase, f))
 
-        # ── Partición por paciente ────────────────────────
-        if clase == "Moderate Dementia":
-            # Caso especial: solo 2 pacientes
-            train_pids   = [p for p in lista_pids if MODERATE_TRAIN    in p]
-            val_pids     = [p for p in lista_pids if MODERATE_VAL_TEST in p]
-            test_pids    = val_pids  # mismo paciente, declarado como limitación
-        else:
-            random.shuffle(lista_pids)
-            n       = len(lista_pids)
-            n_train = int(n * 0.70)
-            n_val   = int(n * 0.15)
-            train_pids = lista_pids[:n_train]
-            val_pids   = lista_pids[n_train:n_train + n_val]
-            test_pids  = lista_pids[n_train + n_val:]
+        # Aumento OFFLINE solo para Train
+        n_actual = len(train_reales)
+        faltantes = N_TRAIN_REF - n_actual
+        
+        if faltantes > 0:
+            print(f"📊 Clase {clase}: {n_actual} reales -> Generando {faltantes} sintéticas.")
+            # LIMITACIÓN DE RIESGO: Si la clase es muy pequeña, el aumento es sutil
+            for i in range(faltantes):
+                img_path = os.path.join(ruta_clase, random.choice(train_reales))
+                img = Image.open(img_path).convert("RGB")
+                img = img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+                
+                angle = random.uniform(-7, 7) # Solo 7 grados
+                zoom = random.uniform(0.95, 1.05) # Solo 5% de zoom
+                
+                img = img.rotate(angle)
+                w, h = img.size
+                img = img.crop((w*(1-1/zoom)/2, h*(1-1/zoom)/2, w*(1+1/zoom)/2, h*(1+1/zoom)/2))
+                img = img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+                
+                img.save(os.path.join(OUTPUT_DIR, "train", clase, f"aug_{i}_{clase}.jpg"))
 
-        # Recopilar rutas por split
-        def rutas_de(pids):
-            return [os.path.join(ruta_clase, f)
-                    for pid in pids for f in pacientes[pid]]
-
-        rutas_train = rutas_de(train_pids)
-        rutas_val   = rutas_de(val_pids)
-        rutas_test  = rutas_de(test_pids)
-        rutas_orig  = rutas_train.copy()  # originales para augmentation
-
-        # ── TRAIN: submuestreo + augmentation ────────────
-        out_train = os.path.join(OUTPUT_DIR, "train", clase)
-
-        # Submuestreo si hay más de N_REF
-        if len(rutas_train) > N_REF:
-            rutas_train = random.sample(rutas_train, N_REF)
-
-        # Copiar originales
-        for i, ruta in enumerate(rutas_train):
-            dst = os.path.join(out_train, f"{clase.replace(' ','_')}_{i:05d}.jpg")
-            copiar(ruta, dst)
-
-        # Augmentation si faltan para llegar a N_REF
-        if len(rutas_train) < N_REF:
-            faltan   = N_REF - len(rutas_train)
-            contador = len(rutas_train)
-            idx      = 0
-            print(f"  {clase}: {len(rutas_train)} reales → generando {faltan} sintéticas...")
-            while faltan > 0:
-                src = rutas_orig[idx % len(rutas_orig)]
-                img_aug = augmentar(Image.open(src))
-                img_aug = img_aug.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.LANCZOS)
-                fname = f"{clase.replace(' ','_')}_aug_{contador:05d}.jpg"
-                img_aug.save(os.path.join(out_train, fname), quality=95)
-                faltan   -= 1
-                contador += 1
-                idx      += 1
-
-        # ── VAL y TEST: solo reales, sin tocar ───────────
-        for i, ruta in enumerate(rutas_val):
-            dst = os.path.join(OUTPUT_DIR, "val", clase,
-                               f"{clase.replace(' ','_')}_{i:05d}.jpg")
-            copiar(ruta, dst)
-
-        for i, ruta in enumerate(rutas_test):
-            dst = os.path.join(OUTPUT_DIR, "test", clase,
-                               f"{clase.replace(' ','_')}_{i:05d}.jpg")
-            copiar(ruta, dst)
-
-        n_tr = len(os.listdir(out_train))
-        n_vl = len(rutas_val)
-        n_ts = len(rutas_test)
-        print(f"  ✅ {clase}: Train={n_tr} | Val={n_vl} | Test={n_ts}")
-
-    # ── Resumen final ─────────────────────────────────────
-    print("\n── Resumen final ──────────────────────────────")
-    total = 0
-    for split in ["train", "val", "test"]:
-        subtotal = 0
-        print(f"\n  {split.upper()}:")
-        for clase in CLASES:
-            p = os.path.join(OUTPUT_DIR, split, clase)
-            n = len(os.listdir(p)) if os.path.exists(p) else 0
-            print(f"    {clase}: {n}")
-            subtotal += n
-        print(f"    SUBTOTAL: {subtotal}")
-        total += subtotal
-    print(f"\n  TOTAL DATASET: {total} imágenes")
-    print(f"\n✅ Dataset listo en: {OUTPUT_DIR}")
-    print("NOTA: Train balanceado a 8750/clase con augmentation.")
-    print("      Val y Test con imágenes reales únicamente.")
-    print("      Moderate Dementia: val y test comparten OAS1_0351 (limitación declarada).")
-
-if __name__ == "__main__":
-    preparar()
+preparar_dataset_senior()

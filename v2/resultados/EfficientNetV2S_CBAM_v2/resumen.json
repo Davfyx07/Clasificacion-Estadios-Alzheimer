@@ -1,0 +1,9 @@
+{
+  "modelo": "EfficientNetV2S_CBAM_v2",
+  "test_loss": 0.0761,
+  "accuracy": 0.9782,
+  "balanced_acc": 0.9784,
+  "macro_f1": 0.9803,
+  "best_val_f1": 0.9828,
+  "minutes": 74.79
+}

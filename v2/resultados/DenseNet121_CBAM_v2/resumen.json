@@ -1,0 +1,9 @@
+{
+  "modelo": "DenseNet121_CBAM_v2",
+  "test_loss": 0.0162,
+  "accuracy": 0.9922,
+  "balanced_acc": 0.9934,
+  "macro_f1": 0.9943,
+  "best_val_f1": 0.9971,
+  "minutes": 90.31
+}
